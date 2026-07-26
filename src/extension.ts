@@ -22,6 +22,7 @@ import { DeckTreeDragAndDropController } from './tree/deckTreeDragAndDropControl
 import { WorktreeOrderStore } from './worktree/worktreeOrderStore';
 import { AddTerminalCommand } from './terminal/addTerminalCommand';
 import { RunLauncherCommand } from './terminal/runLauncherCommand';
+import { ImportClaudeSessionCommand } from './agent/importClaudeSession';
 import { WorktreeCreateLauncherRunner } from './terminal/worktreeCreateLauncherRunner';
 import { TerminalRemovalCommand } from './terminal/killTerminalCommand';
 import { OpenTerminalCommand } from './terminal/openTerminalCommand';
@@ -253,6 +254,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     undefined,
     ensureSnapshotRestored,
   );
+  const importClaudeSession = new ImportClaudeSessionCommand(tmux, {
+    refresh: refreshTree,
+    beforeCreate: ensureSnapshotRestored,
+  });
   const runLauncher = new RunLauncherCommand(tmux, {
     refresh: refreshTree,
     beforeCreate: ensureSnapshotRestored,
@@ -476,6 +481,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('deck.addWorktree', (node) => addWorktree.run(node)),
     vscode.commands.registerCommand('deck.addTerminal', (node) => addTerminal.run(node)),
     vscode.commands.registerCommand('deck.runLauncher', (node) => runLauncher.run(node)),
+    vscode.commands.registerCommand('deck.importClaudeSession', (node) =>
+      importClaudeSession.run(node),
+    ),
     vscode.commands.registerCommand('deck.openTerminal', (node) => openTerminal.run(node)),
     vscode.commands.registerCommand('deck.openTerminalInNewWindow', (node) =>
       openTerminalInNewWindow.run(node),

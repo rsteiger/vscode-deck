@@ -36,11 +36,12 @@ describe('package contributions', () => {
     }
   });
 
-  it('contributes Deck to the secondary sidebar with first-install walkthrough', () => {
+  it('contributes Deck to the activity bar with first-install walkthrough', () => {
     expect(pkg.activationEvents).toEqual(['onView:deck.repositories', 'onStartupFinished']);
     expect(pkg.engines.vscode).toBe('^1.110.0');
-    expect(pkg.contributes.viewsContainers.activitybar).toBeUndefined();
-    expect(pkg.contributes.viewsContainers.secondarySidebar).toEqual([{
+    // Fork divergence: Deck lives in the primary sidebar (activity bar) here.
+    expect(pkg.contributes.viewsContainers.secondarySidebar).toBeUndefined();
+    expect(pkg.contributes.viewsContainers.activitybar).toEqual([{
       id: 'deck',
       title: 'Deck',
       icon: '$(folder)',

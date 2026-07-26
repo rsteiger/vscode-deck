@@ -280,6 +280,11 @@
         "command": "deck.refresh",
         "title": "Deck: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "deck.importClaudeSession",
+        "title": "Deck: Import Claude Session",
+        "icon": "$(debug-restart)"
       }
     ],
     "keybindings": [
@@ -359,6 +364,11 @@
           "command": "deck.openTerminalInNewWindow",
           "when": "view == deck.repositories && viewItem == deck.terminal.foreign && deck.tmuxAvailable",
           "group": "navigation"
+        },
+        {
+          "command": "deck.importClaudeSession",
+          "when": "view == deck.repositories && (viewItem == deck.worktree || viewItem == deck.worktree.active || viewItem == deck.worktree.main) && deck.tmuxAvailable",
+          "group": "terminal@3"
         }
       ],
       "commandPalette": [

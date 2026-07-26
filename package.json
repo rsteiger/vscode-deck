@@ -85,7 +85,7 @@
         "deck.tmux.automaticRenameFormat": {
           "type": "string",
           "default": "",
-          "markdownDescription": "tmux `automatic-rename-format` value for Deck Terminals. Empty uses tmux's default foreground-command naming. See the [tmux Formats guide](https://github.com/tmux/tmux/wiki/Formats) for the `#{…}` syntax and examples."
+          "markdownDescription": "tmux `automatic-rename-format` value for Deck Terminals. Empty uses tmux's default foreground-command naming. See the [tmux Formats guide](https://github.com/tmux/tmux/wiki/Formats) for the `#{\u2026}` syntax and examples."
         },
         "deck.terminalLaunchers": {
           "type": "array",
@@ -115,7 +115,7 @@
         "deck.repositoryLaunchers": {
           "type": "array",
           "default": [],
-          "markdownDescription": "TerminalLaunchers for a single Repository, kept in your user settings instead of committed to the repo (`.deck/launchers.json`). `repository` is any path inside the repo — a leading `~` is expanded, and it is matched by git common dir, so it applies to every Worktree.\n\nExample:\n```json\n[{ \"repository\": \"~/code/myapp\", \"launchers\": [\n  { \"label\": \"Bootstrap\", \"command\": \"mise install && pnpm bootstrap\", \"runOnWorktreeCreate\": true },\n  { \"label\": \"Claude\", \"command\": \"claude\" }\n] }]\n```",
+          "markdownDescription": "TerminalLaunchers for a single Repository, kept in your user settings instead of committed to the repo (`.deck/launchers.json`). `repository` is any path inside the repo \u2014 a leading `~` is expanded, and it is matched by git common dir, so it applies to every Worktree.\n\nExample:\n```json\n[{ \"repository\": \"~/code/myapp\", \"launchers\": [\n  { \"label\": \"Bootstrap\", \"command\": \"mise install && pnpm bootstrap\", \"runOnWorktreeCreate\": true },\n  { \"label\": \"Claude\", \"command\": \"claude\" }\n] }]\n```",
           "items": {
             "type": "object",
             "properties": {
@@ -156,7 +156,7 @@
       }
     },
     "viewsContainers": {
-      "secondarySidebar": [
+      "activitybar": [
         {
           "id": "deck",
           "title": "Deck",
@@ -223,12 +223,12 @@
       },
       {
         "command": "deck.removeWorktree",
-        "title": "Delete Worktree…",
+        "title": "Delete Worktree\u2026",
         "icon": "$(trash)"
       },
       {
         "command": "deck.removeRepository",
-        "title": "Remove from Deck…"
+        "title": "Remove from Deck\u2026"
       },
       {
         "command": "deck.switchWorktree",

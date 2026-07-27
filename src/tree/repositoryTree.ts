@@ -34,7 +34,13 @@ import {
   describeWorktreeTreeItem,
 } from './worktreeTreeItem';
 
-export type RepositoryTreeNode = RepositoryNode | WorktreeNode | TerminalNode | TmuxUnavailableNode;
+export type RepositoryTreeNode =
+  | RepositoryNode
+  | WorktreeNode
+  | TerminalNode
+  | TmuxUnavailableNode
+  | PrNode
+  | PrPlaceholderNode;
 
 const resourcesDir = path.join(__dirname, '..', '..', 'resources');
 
@@ -89,6 +95,7 @@ class WorktreeNode extends vscode.TreeItem {
     isActiveWorktree: boolean,
     public readonly mainWorktreePath: string | undefined,
     sessionName?: string,
+    revealTerminalOnClick = false,
   ) {
     const item = describeWorktreeTreeItem(
       worktree,
@@ -102,6 +109,15 @@ class WorktreeNode extends vscode.TreeItem {
     this.description = item.description;
     this.tooltip = item.tooltip;
     this.resourceUri = toDecorationUri('worktree', worktree.path);
+    // In PR-children mode the row's single click opens the worktree's session
+    // terminal; the twistie still expands the PR list underneath.
+    if (revealTerminalOnClick) {
+      this.command = {
+        command: 'deck.revealWorktreeTerminal',
+        title: 'Open session terminal',
+        arguments: [worktree.path],
+      };
+    }
   }
 }
 
@@ -163,6 +179,36 @@ class TerminalNode extends vscode.TreeItem {
   }
 }
 
+export interface WorktreePr {
+  number: number;
+  title: string;
+  url: string;
+  needs?: string;
+}
+
+class PrNode extends vscode.TreeItem {
+  constructor(public readonly pr: WorktreePr) {
+    super(`#${pr.number} ${pr.title}`, vscode.TreeItemCollapsibleState.None);
+    this.id = `pr::${pr.number}`;
+    this.description = pr.needs ?? '';
+    this.tooltip = `#${pr.number} ${pr.title}\n${pr.url}`;
+    this.iconPath = new vscode.ThemeIcon('git-pull-request');
+    this.contextValue = 'deck.pr';
+    this.command = {
+      command: 'deck.openPr',
+      title: 'Open PR',
+      arguments: [pr.number, pr.url],
+    };
+  }
+}
+
+class PrPlaceholderNode extends vscode.TreeItem {
+  constructor(label: string) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = 'deck.pr.placeholder';
+  }
+}
+
 class TmuxUnavailableNode extends vscode.TreeItem {
   constructor(public readonly worktreeNode: WorktreeNode) {
     const item = describeTmuxUnavailableTreeItem();
@@ -199,6 +245,9 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
   // Resolves a worktree path to its Claude session name for the row label
   // (one session per worktree). Unset → label falls back to branch/basename.
   resolveWorktreeSessionName?: (worktreePath: string) => string | undefined;
+  // When set, worktree rows list their open PRs as children (and open their
+  // session terminal on row click) instead of listing terminal children.
+  resolveWorktreePrs?: (worktree: Worktree) => Promise<WorktreePr[]>;
 
   constructor(
     private readonly repositoryRegistry: Pick<RepositoryRegistryStore, 'list'>,
@@ -329,6 +378,9 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
       return this.getWorktreeChildren(element);
     }
     if (element instanceof WorktreeNode) {
+      // PR-children mode: the worktree row opens its session terminal on click
+      // (see WorktreeNode) and lists the worktree's open PRs underneath.
+      if (this.resolveWorktreePrs) return this.getPrChildren(element);
       if (!this.tmuxAvailable) return [new TmuxUnavailableNode(element)];
       return this.getTerminalChildren(element);
     }
@@ -422,6 +474,7 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
       this.isCurrentWorktree(worktreeNode.worktree.path),
       worktreeNode.mainWorktreePath,
       this.resolveWorktreeSessionName?.(worktreeNode.worktree.path),
+      this.resolveWorktreePrs !== undefined,
     );
   }
 
@@ -544,6 +597,18 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
     return this.toWorktreeNodes(repositoryPath, visibleWorktrees, commonDir);
   }
 
+  private async getPrChildren(element: WorktreeNode): Promise<RepositoryTreeNode[]> {
+    if (!this.resolveWorktreePrs) return [];
+    let prs: WorktreePr[];
+    try {
+      prs = await this.resolveWorktreePrs(element.worktree);
+    } catch {
+      return [new PrPlaceholderNode('PRs unavailable')];
+    }
+    if (prs.length === 0) return [new PrPlaceholderNode('no open PRs')];
+    return prs.map((pr) => new PrNode(pr));
+  }
+
   private async getTerminalChildren(element: WorktreeNode): Promise<RepositoryTreeNode[]> {
     // Wait for the DeckSocket to finish restoring before listing — otherwise a
     // reopen-after-kill reads an empty/partial session list, and the prune below
@@ -640,6 +705,7 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
         this.isCurrentWorktree(w.path),
         mainWorktreePath,
         this.resolveWorktreeSessionName?.(w.path),
+        this.resolveWorktreePrs !== undefined,
       );
     });
     this.syncAgentStatusDecorations();

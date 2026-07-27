@@ -1,8 +1,10 @@
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { RepositoryTreeProvider, type RepositoryTreeNode } from './tree/repositoryTree';
+import { RepositoryTreeProvider, type RepositoryTreeNode, type WorktreePr } from './tree/repositoryTree';
 import { revealWithRetry } from './tree/revealWithRetry';
 import { ActiveWorktreeStore } from './switch/activeWorktreeStore';
 import { DetachedOpener } from './switch/detachedOpener';
@@ -237,6 +239,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       sessionNameCacheAt = now;
     }
     return sessionNameCache.get(worktreePath);
+  };
+  // List a worktree's open PRs as tree children (one session per worktree).
+  // gh infers the repo from the worktree cwd; results cached per branch so the
+  // terminal poll's frequent tree refreshes do not re-hit gh.
+  const prCache = new Map<string, { at: number; prs: WorktreePr[] }>();
+  const execFileAsync = promisify(execFile);
+  tree.resolveWorktreePrs = async (worktree) => {
+    if (!worktree.branch) return [];
+    const cached = prCache.get(worktree.branch);
+    const now = Number(process.hrtime.bigint() / 1_000_000n);
+    if (cached && now - cached.at < 30_000) return cached.prs;
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['pr', 'list', '--head', worktree.branch, '--state', 'open',
+       '--json', 'number,title,url'],
+      { cwd: worktree.path, maxBuffer: 8 * 1024 * 1024 },
+    );
+    const prs: WorktreePr[] = JSON.parse(stdout).map(
+      (p: { number: number; title: string; url: string }) => ({
+        number: p.number,
+        title: p.title,
+        url: p.url,
+      }),
+    );
+    prCache.set(worktree.branch, { at: now, prs });
+    return prs;
   };
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
@@ -560,6 +588,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       importClaudeSession.run(node),
     ),
     vscode.commands.registerCommand('deck.openTerminal', (node) => openTerminal.run(node)),
+    // Open a PR child: prefer PR Dash's reload-free in-window diff view, fall
+    // back to the browser when PR Dash is not installed.
+    vscode.commands.registerCommand(
+      'deck.openPr',
+      async (prNumber: unknown, url: unknown) => {
+        try {
+          await vscode.commands.executeCommand('prDash.openPrByNumber', prNumber);
+        } catch {
+          if (typeof url === 'string') {
+            await vscode.env.openExternal(vscode.Uri.parse(url));
+          }
+        }
+      },
+    ),
     // Reveal (or create) a worktree's Deck terminal by path, in this window —
     // lets sibling extensions (PR Dash) surface a worktree's agent without a
     // window reload. Reveals the lowest-numbered existing session, else creates.

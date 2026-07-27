@@ -195,6 +195,31 @@ describe('RepositoryTreeProvider', () => {
     expect(provider.isActiveWorktreeDecorationTarget('/work/alpha-main')).toBe(true);
   });
 
+  it('lists a worktree\'s open PRs as children when a PR resolver is set', async () => {
+    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
+    const provider = new RepositoryTreeProvider(
+      registry(),
+      { get: vi.fn() } as unknown as ActiveWorktreeStore,
+      { get: vi.fn() } as unknown as WorktreeOrderStore,
+    );
+    provider.resolveWorktreePrs = async (worktree) =>
+      worktree.branch === 'feature'
+        ? [{ number: 123, title: 'Do the thing', url: 'https://x/123' }]
+        : [];
+
+    const repositories = provider.getChildren();
+    if (!Array.isArray(repositories)) throw new Error('expected sync repository roots');
+    const worktrees = await provider.getChildren(repositories[0]);
+    if (!Array.isArray(worktrees)) throw new Error('expected worktree children');
+    const feature = worktrees.find((n) => n.worktree?.branch === 'feature');
+    const prChildren = await provider.getChildren(feature);
+    if (!Array.isArray(prChildren)) throw new Error('expected PR children');
+
+    expect(prChildren.map((n) => n.label)).toEqual(['#123 Do the thing']);
+    // The worktree row opens its session terminal on click in PR mode.
+    expect(feature?.command?.command).toBe('deck.revealWorktreeTerminal');
+  });
+
   it('hides worktrees without a live terminal, keeping current and main', async () => {
     vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-feature' } }];
     const provider = new RepositoryTreeProvider(

@@ -336,6 +336,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       for (const worktree of gitWorktrees) {
         if (worktree.bare) continue;
         if (!worktreeHasLiveSession(worktree.path)) continue;
+        // PR resolution must be fault-isolated per worktree: a single gh
+        // failure must not blank the whole board.
+        let prs: WorktreePr[];
+        try {
+          prs = await resolveWorktreePrs(worktree);
+        } catch {
+          prs = [];
+        }
         worktrees.push({
           path: worktree.path,
           label:
@@ -343,7 +351,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             worktree.branch ??
             basename(worktree.path),
           status: worktreeStatus(worktree.path),
-          prs: await resolveWorktreePrs(worktree),
+          prs,
         });
       }
     }

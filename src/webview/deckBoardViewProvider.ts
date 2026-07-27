@@ -48,7 +48,12 @@ export class DeckBoardViewProvider implements vscode.WebviewViewProvider {
 
   async refresh(): Promise<void> {
     if (!this.view) return;
-    const model = await this.buildModel();
+    let model: DeckBoard;
+    try {
+      model = await this.buildModel();
+    } catch {
+      model = { sections: [] }; // Never leave the board blank on a build error.
+    }
     void this.view.webview.postMessage({ type: 'model', model });
   }
 

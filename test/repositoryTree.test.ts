@@ -220,28 +220,27 @@ describe('RepositoryTreeProvider', () => {
     expect(feature?.command?.command).toBe('deck.revealWorktreeTerminal');
   });
 
-  it('hides worktrees without a live terminal, keeping current and main', async () => {
-    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-feature' } }];
+  it('hides worktrees without a live terminal, including root and current', async () => {
+    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
     const provider = new RepositoryTreeProvider(
       registry(),
       { get: vi.fn() } as unknown as ActiveWorktreeStore,
       { get: vi.fn() } as unknown as WorktreeOrderStore,
     );
     provider.hideInactiveWorktrees = true;
-    // /work/alpha-main is the main worktree (always shown); alpha-feature is the
-    // current folder (always shown). A live session under neither keeps them
-    // both and hides nothing extra since there are only those two here.
-    provider.setLiveSessionNames([]);
+    // A live Deck terminal only under alpha-feature; the main/root worktree
+    // (alpha-main, also the current folder) is NOT special-cased and is hidden.
+    provider.setLiveSessionNames([
+      'wt-_work_alpha-feature__term-1',
+    ]);
 
     const repositories = provider.getChildren();
     if (!Array.isArray(repositories)) throw new Error('expected sync repository roots');
     const worktreeNodes = await provider.getChildren(repositories[0]);
     if (!Array.isArray(worktreeNodes)) throw new Error('expected worktree children');
 
-    // Both survive: main (alpha-main) and current (alpha-feature).
-    expect(worktreeNodes.map((node) => node.worktree.path).sort()).toEqual([
+    expect(worktreeNodes.map((node) => node.worktree.path)).toEqual([
       '/work/alpha-feature',
-      '/work/alpha-main',
     ]);
   });
 

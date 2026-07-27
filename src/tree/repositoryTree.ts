@@ -733,22 +733,15 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
       pendingAtListStart === undefined
         ? currentlyVisible
         : excludePending(currentlyVisible, pendingAtListStart);
-    return this.excludeInactive(notPending, worktrees);
+    return this.excludeInactive(notPending);
   }
 
-  private excludeInactive(
-    worktrees: readonly Worktree[],
-    allWorktrees: readonly Worktree[],
-  ): Worktree[] {
+  private excludeInactive(worktrees: readonly Worktree[]): Worktree[] {
     if (!this.hideInactiveWorktrees) return [...worktrees];
-    const mainPath = allWorktrees.find((worktree) => !worktree.bare)?.path;
-    return worktrees.filter(
-      (worktree) =>
-        this.isCurrentWorktree(worktree.path) ||
-        (mainPath !== undefined &&
-          path.resolve(worktree.path) === path.resolve(mainPath)) ||
-        this.hasLiveSession(worktree.path),
-    );
+    // Show only worktrees with a live Deck terminal. The main/root worktree is
+    // intentionally NOT special-cased: it is the workbench root, not a session,
+    // so it should not appear even when a non-Deck session runs there.
+    return worktrees.filter((worktree) => this.hasLiveSession(worktree.path));
   }
 
   private hasLiveSession(worktreePath: string): boolean {

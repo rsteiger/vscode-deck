@@ -7,6 +7,7 @@ import { revealWithRetry } from './tree/revealWithRetry';
 import { ActiveWorktreeStore } from './switch/activeWorktreeStore';
 import { DetachedOpener } from './switch/detachedOpener';
 import { WorktreeSwitcher } from './switch/worktreeSwitcher';
+import { registerRepositorySeed } from './repository/registerRepositorySeed';
 import {
   AddRepositoryCommand,
   VsCodeRepositoryFolderPicker,
@@ -345,6 +346,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       console.warn('Deck: TreeView.reveal failed', error);
     }
   };
+
+  // Auto-register the open workspace folders as Deck repositories. Deck's
+  // globalState registry does not persist under code-server (no state.vscdb),
+  // so a fresh browser or reload would otherwise start with "No repositories
+  // yet"; seeding from the open folders makes the current repo appear
+  // deterministically. registerRepositorySeed is idempotent — an already
+  // registered folder or a non-git folder is a no-op.
+  const autoSeedWorkspaceRepositories = async () => {
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      try {
+        await registerRepositorySeed({
+          seedPath: folder.uri.fsPath,
+          registry: repositoryRegistry,
+          activeWorktrees,
+          refresh: refreshTree,
+          reveal: revealRepository,
+          repositoryCommonDirCache,
+        });
+      } catch (error) {
+        console.warn('Deck: auto-seed failed for', folder.uri.fsPath, error);
+      }
+    }
+  };
+  void autoSeedWorkspaceRepositories();
+
   const dragAndDropController = new DeckTreeDragAndDropController(
     refreshTree,
     repositoryRegistry,

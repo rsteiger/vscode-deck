@@ -248,6 +248,9 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
   // When set, worktree rows list their open PRs as children (and open their
   // session terminal on row click) instead of listing terminal children.
   resolveWorktreePrs?: (worktree: Worktree) => Promise<WorktreePr[]>;
+  // When true, drop the repository top-level node and render worktrees at the
+  // root (single-project layout).
+  flattenRepositories = false;
 
   constructor(
     private readonly repositoryRegistry: Pick<RepositoryRegistryStore, 'list'>,
@@ -346,6 +349,7 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
 
   getParent(element: RepositoryTreeNode): RepositoryTreeNode | undefined {
     if (element instanceof WorktreeNode) {
+      if (this.flattenRepositories) return undefined;
       return new RepositoryNode(
         element.repositoryPath,
         this.isActiveRepository(element.repositoryPath),
@@ -372,6 +376,15 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
         return new RepositoryNode(p, this.isActiveRepository(p));
       });
       this.syncAgentStatusDecorations();
+      // Flattened mode: no repository top-level node — worktrees render at the
+      // root (single project). getWorktreeChildren returns synchronously from
+      // the worktree cache when warm, so the welcome view does not flash.
+      if (this.flattenRepositories) {
+        if (nodes.length === 1) return this.getWorktreeChildren(nodes[0]);
+        return Promise.all(nodes.map((node) => this.resolveChildren(node))).then(
+          (lists) => lists.flat(),
+        );
+      }
       return nodes;
     }
     if (element instanceof RepositoryNode) {

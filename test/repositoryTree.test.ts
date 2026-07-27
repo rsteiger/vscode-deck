@@ -220,6 +220,26 @@ describe('RepositoryTreeProvider', () => {
     expect(feature?.command?.command).toBe('deck.revealWorktreeTerminal');
   });
 
+  it('renders worktrees at the root with no repository node when flattened', async () => {
+    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
+    const provider = new RepositoryTreeProvider(
+      registry(['/work/alpha-main']),
+      { get: vi.fn() } as unknown as ActiveWorktreeStore,
+      { get: vi.fn() } as unknown as WorktreeOrderStore,
+    );
+    provider.flattenRepositories = true;
+
+    const roots = await provider.getChildren();
+    if (!Array.isArray(roots)) throw new Error('expected root children');
+
+    expect(roots.map((node) => node.worktree?.path)).toEqual([
+      '/work/alpha-main',
+      '/work/alpha-feature',
+    ]);
+    // Flattened worktrees are top-level: no parent node.
+    expect(provider.getParent(roots[0])).toBeUndefined();
+  });
+
   it('hides worktrees without a live terminal, including root and current', async () => {
     vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
     const provider = new RepositoryTreeProvider(

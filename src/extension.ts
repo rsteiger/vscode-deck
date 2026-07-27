@@ -266,6 +266,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     prCache.set(worktree.branch, { at: now, prs });
     return prs;
   };
+  // Single project: render worktrees at the tree root, no repository node.
+  tree.flattenRepositories = true;
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
         sidecars: agentSidecars,
@@ -582,6 +584,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('deck.addRepository', () => addRepository.run()),
     vscode.commands.registerCommand('deck.addWorktree', (node) => addWorktree.run(node)),
+    // View-title "+": with the flattened single-project tree there is no
+    // repository node to hang the worktree command on, so resolve the repo
+    // from the registry (prompt only when more than one is registered).
+    vscode.commands.registerCommand('deck.addWorktreeHere', async () => {
+      const repositories = repositoryRegistry.list();
+      let repositoryPath = repositories[0];
+      if (repositories.length > 1) {
+        const picked = await vscode.window.showQuickPick(repositories, {
+          placeHolder: 'Select repository',
+        });
+        if (!picked) return;
+        repositoryPath = picked;
+      }
+      if (!repositoryPath) {
+        void vscode.commands.executeCommand('deck.addRepository');
+        return;
+      }
+      await addWorktree.run({ repositoryPath });
+    }),
     vscode.commands.registerCommand('deck.addTerminal', (node) => addTerminal.run(node)),
     vscode.commands.registerCommand('deck.runLauncher', (node) => runLauncher.run(node)),
     vscode.commands.registerCommand('deck.importClaudeSession', (node) =>

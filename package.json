@@ -227,6 +227,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "deck.addWorktreeHere",
+        "title": "New Worktree",
+        "icon": "$(add)"
+      },
+      {
         "command": "deck.removeWorktree",
         "title": "Delete Worktree\u2026",
         "icon": "$(trash)"
@@ -314,7 +319,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "deck.addRepository",
+          "command": "deck.addWorktreeHere",
           "when": "view == deck.repositories",
           "group": "navigation"
         },

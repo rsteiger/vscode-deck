@@ -288,6 +288,7 @@ vi.mock('../src/repository/addRepositoryCommand', () => ({
     run = vscodeState.addRepositoryRun;
   },
   VsCodeRepositoryFolderPicker: class {},
+  WorkspaceFolderRepositoryPicker: class {},
 }));
 
 vi.mock('../src/switch/worktreeSwitcher', () => ({

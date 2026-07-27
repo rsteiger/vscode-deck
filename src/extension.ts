@@ -7,7 +7,11 @@ import { revealWithRetry } from './tree/revealWithRetry';
 import { ActiveWorktreeStore } from './switch/activeWorktreeStore';
 import { DetachedOpener } from './switch/detachedOpener';
 import { WorktreeSwitcher } from './switch/worktreeSwitcher';
-import { AddRepositoryCommand, VsCodeRepositoryFolderPicker } from './repository/addRepositoryCommand';
+import {
+  AddRepositoryCommand,
+  VsCodeRepositoryFolderPicker,
+  WorkspaceFolderRepositoryPicker,
+} from './repository/addRepositoryCommand';
 import { RepositoryRemovalCommand } from './repository/repositoryRemovalCommand';
 import { ExternalGitWatch } from './repository/externalGitWatch';
 import { RepositoryCommonDirCache, resolveCommonDirSafe } from './repository/repositoryCommonDirCache';
@@ -429,7 +433,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     describeSession: (sessionName) => tree.describeSession(sessionName),
   }).start();
   const addRepository = new AddRepositoryCommand(
-    new VsCodeRepositoryFolderPicker(),
+    new WorkspaceFolderRepositoryPicker(new VsCodeRepositoryFolderPicker()),
     repositoryRegistry,
     activeWorktrees,
     switcher,

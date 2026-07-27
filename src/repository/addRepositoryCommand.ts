@@ -28,6 +28,30 @@ export class VsCodeRepositoryFolderPicker implements RepositoryFolderPicker {
   }
 }
 
+/**
+ * Picks a repository from the open workspace folders via a Quick Pick,
+ * falling back to the file dialog via "Browse…".
+ *
+ * The file dialog is awkward in VS Code web (code-server), where the common
+ * case is registering the folder already open — this offers those folders as
+ * a one-click list.
+ */
+export class WorkspaceFolderRepositoryPicker implements RepositoryFolderPicker {
+  constructor(private readonly fallback: RepositoryFolderPicker) {}
+
+  async pick(): Promise<string | undefined> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) return this.fallback.pick();
+    const browse = 'Browse for a folder…';
+    const items = [...folders.map((f) => f.uri.fsPath), browse];
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Folder to add as a Deck repository',
+    });
+    if (picked === undefined) return undefined;
+    return picked === browse ? this.fallback.pick() : picked;
+  }
+}
+
 export class AddRepositoryCommand {
   constructor(
     private readonly picker: RepositoryFolderPicker,

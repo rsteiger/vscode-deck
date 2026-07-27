@@ -64,7 +64,22 @@ function terminal(repositoryPath: string, worktreePath: string, sessionName: str
   };
 }
 
-function createController(refresh = vi.fn()) {
+function section(sectionId: string, isDefault = false) {
+  return {
+    contextValue: isDefault ? 'deck.section.default' : 'deck.section',
+    sectionId,
+  };
+}
+
+interface SectionAssignerMock {
+  assign: ReturnType<typeof vi.fn>;
+  sectionOf: (worktreePath: string) => string | undefined;
+}
+
+function createController(
+  refresh = vi.fn(),
+  sections?: SectionAssignerMock,
+) {
   const repositoryRegistry = {
     list: vi.fn(() => vscodeState.repositories),
     append: vi.fn(async (repositoryPath: string) => {
@@ -105,6 +120,8 @@ function createController(refresh = vi.fn()) {
       switcher,
       detachedOpener,
       reveal,
+      undefined,
+      sections,
     ),
     detachedOpener,
     repositoryRegistry,
@@ -470,5 +487,48 @@ describe('DeckTreeDragAndDropController', () => {
     expect(reveal).toHaveBeenCalledOnce();
     expect(reveal).toHaveBeenCalledWith('/dropped/two');
     expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+  });
+
+  it('assigns a Worktree to the section it is dropped on', async () => {
+    const sections: SectionAssignerMock = {
+      assign: vi.fn(),
+      sectionOf: () => undefined,
+    };
+    const { controller, refresh, worktreeOrders } = createController(vi.fn(), sections);
+    const dataTransfer = new DataTransferMock();
+
+    controller.handleDrag?.(
+      [worktree('/repo/a', '/repo/a-feature')],
+      dataTransfer as vscode.DataTransfer,
+      {} as never,
+    );
+    await controller.handleDrop?.(
+      section('sec-active'),
+      dataTransfer as vscode.DataTransfer,
+      {} as never,
+    );
+
+    expect(sections.assign).toHaveBeenCalledWith('/repo/a-feature', 'sec-active');
+    expect(worktreeOrders.set).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('ungroups a Worktree dropped on empty space when sections are enabled', async () => {
+    const sections: SectionAssignerMock = {
+      assign: vi.fn(),
+      sectionOf: () => 'sec-active',
+    };
+    const { controller, refresh } = createController(vi.fn(), sections);
+    const dataTransfer = new DataTransferMock();
+
+    controller.handleDrag?.(
+      [worktree('/repo/a', '/repo/a-feature')],
+      dataTransfer as vscode.DataTransfer,
+      {} as never,
+    );
+    await controller.handleDrop?.(undefined, dataTransfer as vscode.DataTransfer, {} as never);
+
+    expect(sections.assign).toHaveBeenCalledWith('/repo/a-feature', '');
+    expect(refresh).toHaveBeenCalledOnce();
   });
 });

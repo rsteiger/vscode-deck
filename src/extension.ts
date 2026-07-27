@@ -26,6 +26,7 @@ import { WorktreeListCacheStore } from './worktree/worktreeListCacheStore';
 import { WorktreeRemovalCommand } from './worktree/worktreeRemovalCommand';
 import { WorktreeRootStore } from './worktree/worktreeRootStore';
 import { DeckTreeDragAndDropController } from './tree/deckTreeDragAndDropController';
+import { SectionStore } from './section/sectionStore';
 import { WorktreeOrderStore } from './worktree/worktreeOrderStore';
 import { AddTerminalCommand, createAndOpenTerminal } from './terminal/addTerminalCommand';
 import { RunLauncherCommand } from './terminal/runLauncherCommand';
@@ -268,6 +269,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // Single project: render worktrees at the tree root, no repository node.
   tree.flattenRepositories = true;
+  // User-created sections: worktrees group under sections you create and drag
+  // between. Persisted to a file since code-server does not keep globalState.
+  const sectionStore = new SectionStore(undefined, () => {
+    tree.sections = sectionStore.list();
+    refreshTree();
+  });
+  tree.sections = sectionStore.list();
+  tree.resolveWorktreeSectionId = (worktreePath) =>
+    sectionStore.sectionOf(worktreePath);
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
         sidecars: agentSidecars,
@@ -456,6 +466,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     detachedOpener,
     revealRepository,
     repositoryCommonDirCache,
+    sectionStore,
   );
   const removeWorktree = new WorktreeRemovalCommand(
     activeWorktrees,
@@ -603,6 +614,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await addWorktree.run({ repositoryPath });
     }),
+    vscode.commands.registerCommand('deck.addSection', async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: 'New section name',
+        placeHolder: 'e.g. Active, Backlog, Shipping',
+      });
+      if (!name?.trim()) return;
+      sectionStore.addSection(name.trim());
+    }),
+    vscode.commands.registerCommand(
+      'deck.renameSection',
+      async (node: { sectionId?: string; label?: string } | undefined) => {
+        if (!node?.sectionId) return;
+        const name = await vscode.window.showInputBox({
+          prompt: 'Rename section',
+          value: typeof node.label === 'string' ? node.label : '',
+        });
+        if (!name?.trim()) return;
+        sectionStore.renameSection(node.sectionId, name.trim());
+      },
+    ),
+    vscode.commands.registerCommand(
+      'deck.removeSection',
+      async (node: { sectionId?: string; label?: string } | undefined) => {
+        if (!node?.sectionId) return;
+        const confirm = await vscode.window.showWarningMessage(
+          `Delete section "${node.label}"? Its worktrees become ungrouped.`,
+          { modal: true },
+          'Delete',
+        );
+        if (confirm !== 'Delete') return;
+        sectionStore.removeSection(node.sectionId);
+      },
+    ),
     vscode.commands.registerCommand('deck.addTerminal', (node) => addTerminal.run(node)),
     vscode.commands.registerCommand('deck.runLauncher', (node) => runLauncher.run(node)),
     vscode.commands.registerCommand('deck.importClaudeSession', (node) =>

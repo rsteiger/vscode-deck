@@ -240,6 +240,37 @@ describe('RepositoryTreeProvider', () => {
     expect(provider.getParent(roots[0])).toBeUndefined();
   });
 
+  it('groups worktrees under their sections with an Ungrouped section for the rest', async () => {
+    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
+    const provider = new RepositoryTreeProvider(
+      registry(['/work/alpha-main']),
+      { get: vi.fn() } as unknown as ActiveWorktreeStore,
+      { get: vi.fn() } as unknown as WorktreeOrderStore,
+    );
+    provider.flattenRepositories = true;
+    provider.sections = [{ id: 'sec-active', name: 'Active' }];
+    provider.resolveWorktreeSectionId = (worktreePath) =>
+      worktreePath === '/work/alpha-feature' ? 'sec-active' : undefined;
+
+    const roots = await provider.getChildren();
+    if (!Array.isArray(roots)) throw new Error('expected root sections');
+    expect(roots.map((node) => node.label)).toEqual(['Active', 'Ungrouped']);
+
+    const active = await provider.getChildren(roots[0]);
+    const ungrouped = await provider.getChildren(roots[1]);
+    if (!Array.isArray(active) || !Array.isArray(ungrouped)) {
+      throw new Error('expected section children');
+    }
+    expect(active.map((node) => node.worktree?.path)).toEqual([
+      '/work/alpha-feature',
+    ]);
+    expect(ungrouped.map((node) => node.worktree?.path)).toEqual([
+      '/work/alpha-main',
+    ]);
+    // A worktree reports its section as its tree parent (for reveal).
+    expect(provider.getParent(active[0])?.label).toBe('Active');
+  });
+
   it('hides worktrees without a live terminal, including root and current', async () => {
     vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
     const provider = new RepositoryTreeProvider(

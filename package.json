@@ -232,6 +232,20 @@
         "icon": "$(add)"
       },
       {
+        "command": "deck.addSection",
+        "title": "New Section",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "deck.renameSection",
+        "title": "Rename Section…"
+      },
+      {
+        "command": "deck.removeSection",
+        "title": "Delete Section…",
+        "icon": "$(trash)"
+      },
+      {
         "command": "deck.removeWorktree",
         "title": "Delete Worktree\u2026",
         "icon": "$(trash)"
@@ -321,15 +335,30 @@
         {
           "command": "deck.addWorktreeHere",
           "when": "view == deck.repositories",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "deck.addSection",
+          "when": "view == deck.repositories",
+          "group": "navigation@2"
         },
         {
           "command": "deck.refresh",
           "when": "view == deck.repositories",
-          "group": "navigation"
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
+        {
+          "command": "deck.renameSection",
+          "when": "view == deck.repositories && viewItem == deck.section",
+          "group": "navigation@1"
+        },
+        {
+          "command": "deck.removeSection",
+          "when": "view == deck.repositories && viewItem == deck.section",
+          "group": "inline"
+        },
         {
           "command": "deck.addWorktree",
           "when": "view == deck.repositories && viewItem == deck.repository",
@@ -401,6 +430,14 @@
         },
         {
           "command": "deck.addWorktree",
+          "when": "false"
+        },
+        {
+          "command": "deck.renameSection",
+          "when": "false"
+        },
+        {
+          "command": "deck.removeSection",
           "when": "false"
         },
         {

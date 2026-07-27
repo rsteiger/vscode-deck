@@ -44,6 +44,17 @@ interface RepositoryNodeLike {
   repositoryPath: string;
 }
 
+interface SectionNodeLike {
+  contextValue: 'deck.section' | 'deck.section.default';
+  sectionId: string;
+}
+
+// Assigns worktrees to Deck sections. An empty sectionId ungroups the worktree.
+export interface SectionAssigner {
+  assign(worktreePath: string, sectionId: string): void | Promise<void>;
+  sectionOf(worktreePath: string): string | undefined;
+}
+
 interface WorktreeNodeLike {
   contextValue: string;
   repositoryPath: string;
@@ -65,7 +76,11 @@ interface TerminalSessionLister {
   listSessions(prefix?: string): Promise<TmuxSession[]>;
 }
 
-type DeckNodeLike = RepositoryNodeLike | WorktreeNodeLike | TerminalNodeLike;
+type DeckNodeLike =
+  | RepositoryNodeLike
+  | SectionNodeLike
+  | WorktreeNodeLike
+  | TerminalNodeLike;
 
 export class DeckTreeDragAndDropController
   implements vscode.TreeDragAndDropController<DeckNodeLike>
@@ -84,6 +99,7 @@ export class DeckTreeDragAndDropController
     private readonly detachedOpener?: DetachedOpenerLike,
     private readonly reveal?: (repositoryPath: string) => Promise<void>,
     private readonly repositoryCommonDirCache: CommonDirCacheLike = PASS_THROUGH_COMMON_DIR_CACHE,
+    private readonly sections?: SectionAssigner,
   ) {}
 
   handleDrag(
@@ -115,6 +131,7 @@ export class DeckTreeDragAndDropController
     }
 
     if (payload.kind === 'worktree') {
+      if (await this.dropWorktreeIntoSection(payload, target)) return;
       if (!target) return;
       await this.dropWorktree(payload, target);
       return;
@@ -179,6 +196,39 @@ export class DeckTreeDragAndDropController
       });
     }
     if (lastRegisteredPath) await reveal(lastRegisteredPath);
+  }
+
+  // Section assignment, when sections are enabled. Returns true when the drop
+  // was a section move (assigning to a section node, ungrouping on empty space,
+  // or moving onto a worktree in a different section) and no reorder should run.
+  private async dropWorktreeIntoSection(
+    payload: Extract<DragPayload, { kind: 'worktree' }>,
+    target: DeckNodeLike | undefined,
+  ): Promise<boolean> {
+    if (!this.sections) return false;
+    if (target && isSectionNode(target)) {
+      await this.assignSection(payload.sourcePath, target.sectionId);
+      return true;
+    }
+    if (!target) {
+      // Dropped on empty space: ungroup.
+      await this.assignSection(payload.sourcePath, '');
+      return true;
+    }
+    if (isWorktreeNode(target)) {
+      const targetSection = this.sections.sectionOf(target.worktree.path) ?? '';
+      const sourceSection = this.sections.sectionOf(payload.sourcePath) ?? '';
+      if (targetSection !== sourceSection) {
+        await this.assignSection(payload.sourcePath, targetSection);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async assignSection(worktreePath: string, sectionId: string): Promise<void> {
+    await this.sections?.assign(worktreePath, sectionId);
+    this.refresh();
   }
 
   private async dropWorktree(
@@ -256,6 +306,13 @@ function toPayload(node: DeckNodeLike): DragPayload | undefined {
 
 function isRepositoryNode(node: DeckNodeLike): node is RepositoryNodeLike {
   return node.contextValue === 'deck.repository';
+}
+
+function isSectionNode(node: DeckNodeLike): node is SectionNodeLike {
+  return (
+    node.contextValue === 'deck.section' ||
+    node.contextValue === 'deck.section.default'
+  );
 }
 
 function isWorktreeNode(node: DeckNodeLike): node is WorktreeNodeLike {

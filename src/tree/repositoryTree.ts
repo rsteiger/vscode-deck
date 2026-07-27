@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { getCommonDir, listWorktrees, Worktree } from '../git/worktrees';
 import { RepositoryCommonDirCache, resolveCommonDirSafe } from '../repository/repositoryCommonDirCache';
 import { RepositoryRegistryStore } from '../repository/repositoryRegistryStore';
+import type { DeckSection } from '../section/sectionStore';
 import { ActiveWorktreeStore } from '../switch/activeWorktreeStore';
 import { WorktreeListCacheStore } from '../worktree/worktreeListCacheStore';
 import { WorktreeOrderStore } from '../worktree/worktreeOrderStore';
@@ -35,12 +36,17 @@ import {
 } from './worktreeTreeItem';
 
 export type RepositoryTreeNode =
+  | SectionNode
   | RepositoryNode
   | WorktreeNode
   | TerminalNode
   | TmuxUnavailableNode
   | PrNode
   | PrPlaceholderNode;
+
+// The pseudo-section that holds worktrees not assigned to any user section.
+const DEFAULT_SECTION_ID = '';
+const DEFAULT_SECTION_NAME = 'Ungrouped';
 
 const resourcesDir = path.join(__dirname, '..', '..', 'resources');
 
@@ -72,6 +78,19 @@ interface AgentStatusLookup {
 
 // Stable TreeItem.id values let VS Code persist expand/collapse + selection
 // across reloads (it stores state per id under workbench.tree.<viewId>).
+
+class SectionNode extends vscode.TreeItem {
+  constructor(
+    public readonly sectionId: string,
+    name: string,
+  ) {
+    super(name, vscode.TreeItemCollapsibleState.Expanded);
+    const isDefault = sectionId === DEFAULT_SECTION_ID;
+    this.id = `section::${sectionId || '(ungrouped)'}`;
+    this.contextValue = isDefault ? 'deck.section.default' : 'deck.section';
+    this.iconPath = new vscode.ThemeIcon(isDefault ? 'inbox' : 'folder');
+  }
+}
 
 class RepositoryNode extends vscode.TreeItem {
   constructor(
@@ -251,6 +270,13 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
   // When true, drop the repository top-level node and render worktrees at the
   // root (single-project layout).
   flattenRepositories = false;
+  // User-created sections shown at the tree root (flattened mode only). When
+  // non-empty, worktrees are grouped under their assigned section, with an
+  // "Ungrouped" section for the rest; empty → worktrees render flat.
+  sections: DeckSection[] = [];
+  // Resolves a worktree path to the id of the section it belongs to (unset or
+  // undefined → the worktree falls into the default "Ungrouped" section).
+  resolveWorktreeSectionId?: (worktreePath: string) => string | undefined;
 
   constructor(
     private readonly repositoryRegistry: Pick<RepositoryRegistryStore, 'list'>,
@@ -349,7 +375,12 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
 
   getParent(element: RepositoryTreeNode): RepositoryTreeNode | undefined {
     if (element instanceof WorktreeNode) {
-      if (this.flattenRepositories) return undefined;
+      if (this.flattenRepositories) {
+        if (!this.sections.length) return undefined;
+        const id = this.effectiveSectionId(element.worktree.path);
+        const section = this.sections.find((candidate) => candidate.id === id);
+        return new SectionNode(id, section?.name ?? DEFAULT_SECTION_NAME);
+      }
       return new RepositoryNode(
         element.repositoryPath,
         this.isActiveRepository(element.repositoryPath),
@@ -380,12 +411,16 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
       // root (single project). getWorktreeChildren returns synchronously from
       // the worktree cache when warm, so the welcome view does not flash.
       if (this.flattenRepositories) {
+        if (this.sections.length) return this.getSectionRoots(nodes);
         if (nodes.length === 1) return this.getWorktreeChildren(nodes[0]);
         return Promise.all(nodes.map((node) => this.resolveChildren(node))).then(
           (lists) => lists.flat(),
         );
       }
       return nodes;
+    }
+    if (element instanceof SectionNode) {
+      return this.getSectionWorktrees(element);
     }
     if (element instanceof RepositoryNode) {
       return this.getWorktreeChildren(element);
@@ -511,6 +546,56 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
     }
 
     return this.loadWorktreeChildren(element.repositoryPath, commonDir);
+  }
+
+  // Root nodes in section mode: every user section (even empty ones, so they
+  // stay as drop targets) plus an "Ungrouped" section when any worktree is
+  // unassigned.
+  private async getSectionRoots(
+    repoNodes: RepositoryNode[],
+  ): Promise<RepositoryTreeNode[]> {
+    const worktrees = await this.allWorktreeNodes(repoNodes);
+    const hasUngrouped = worktrees.some(
+      (node) => this.effectiveSectionId(node.worktree.path) === DEFAULT_SECTION_ID,
+    );
+    const roots: RepositoryTreeNode[] = this.sections.map(
+      (section) => new SectionNode(section.id, section.name),
+    );
+    if (hasUngrouped) {
+      roots.push(new SectionNode(DEFAULT_SECTION_ID, DEFAULT_SECTION_NAME));
+    }
+    return roots;
+  }
+
+  private async getSectionWorktrees(
+    element: SectionNode,
+  ): Promise<RepositoryTreeNode[]> {
+    const repoNodes = this.repositoryRegistry
+      .list()
+      .map((repositoryPath) => new RepositoryNode(repositoryPath, this.isActiveRepository(repositoryPath)));
+    const worktrees = await this.allWorktreeNodes(repoNodes);
+    return worktrees.filter(
+      (node) => this.effectiveSectionId(node.worktree.path) === element.sectionId,
+    );
+  }
+
+  // A worktree's section id, collapsed to DEFAULT_SECTION_ID when unassigned or
+  // when its stored section no longer exists.
+  private effectiveSectionId(worktreePath: string): string {
+    const id = this.resolveWorktreeSectionId?.(worktreePath);
+    if (id && this.sections.some((section) => section.id === id)) return id;
+    return DEFAULT_SECTION_ID;
+  }
+
+  private async allWorktreeNodes(
+    repoNodes: readonly RepositoryNode[],
+  ): Promise<WorktreeNode[]> {
+    const lists = await Promise.all(
+      repoNodes.map((node) => this.getWorktreeChildren(node)),
+    );
+    return lists
+      .flat()
+      .filter((node): node is WorktreeNode => node instanceof WorktreeNode);
   }
 
   private resolveActiveRepository(): void {

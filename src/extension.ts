@@ -25,7 +25,7 @@ import { WorktreeRemovalCommand } from './worktree/worktreeRemovalCommand';
 import { WorktreeRootStore } from './worktree/worktreeRootStore';
 import { DeckTreeDragAndDropController } from './tree/deckTreeDragAndDropController';
 import { WorktreeOrderStore } from './worktree/worktreeOrderStore';
-import { AddTerminalCommand } from './terminal/addTerminalCommand';
+import { AddTerminalCommand, createAndOpenTerminal } from './terminal/addTerminalCommand';
 import { RunLauncherCommand } from './terminal/runLauncherCommand';
 import { ImportClaudeSessionCommand } from './agent/importClaudeSession';
 import { WorktreeCreateLauncherRunner } from './terminal/worktreeCreateLauncherRunner';
@@ -544,6 +544,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       importClaudeSession.run(node),
     ),
     vscode.commands.registerCommand('deck.openTerminal', (node) => openTerminal.run(node)),
+    // Reveal (or create) a worktree's Deck terminal by path, in this window —
+    // lets sibling extensions (PR Dash) surface a worktree's agent without a
+    // window reload. Reveals the lowest-numbered existing session, else creates.
+    vscode.commands.registerCommand(
+      'deck.revealWorktreeTerminal',
+      async (worktreePath: unknown) => {
+        if (typeof worktreePath !== 'string' || !tmuxAvailability.available) return;
+        const codec = new SessionUriCodec();
+        const sessions = await tmux.listSessions(terminalSessionPrefix(worktreePath));
+        if (sessions.length > 0) {
+          const term = Math.min(
+            ...sessions.map((s) => terminalSessionNumber(worktreePath, s.sessionName)),
+          );
+          await vscode.commands.executeCommand(
+            'vscode.openWith',
+            codec.encode({ worktreePath, term }),
+            terminalEditorViewType,
+            { viewColumn: vscode.ViewColumn.Active },
+          );
+          return;
+        }
+        await ensureSnapshotRestored();
+        await createAndOpenTerminal(tmux, { worktree: { path: worktreePath } }, codec);
+        refreshTree();
+      },
+    ),
     vscode.commands.registerCommand('deck.openTerminalInNewWindow', (node) =>
       openTerminalInNewWindow.run(node),
     ),

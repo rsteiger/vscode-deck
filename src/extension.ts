@@ -27,7 +27,10 @@ import { DeckTreeDragAndDropController } from './tree/deckTreeDragAndDropControl
 import { WorktreeOrderStore } from './worktree/worktreeOrderStore';
 import { AddTerminalCommand, createAndOpenTerminal } from './terminal/addTerminalCommand';
 import { RunLauncherCommand } from './terminal/runLauncherCommand';
-import { ImportClaudeSessionCommand } from './agent/importClaudeSession';
+import {
+  ImportClaudeSessionCommand,
+  claudeSessionNamesByCwd,
+} from './agent/importClaudeSession';
 import { WorktreeCreateLauncherRunner } from './terminal/worktreeCreateLauncherRunner';
 import { TerminalRemovalCommand } from './terminal/killTerminalCommand';
 import { OpenTerminalCommand } from './terminal/openTerminalCommand';
@@ -222,6 +225,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminalOrders,
     ensureSnapshotRestored,
   );
+  // Label worktree rows with their Claude session name (one session per
+  // worktree). Cached briefly so getTreeItem does not re-read the sessions
+  // dir on every row render.
+  let sessionNameCache = new Map<string, string>();
+  let sessionNameCacheAt = 0;
+  tree.resolveWorktreeSessionName = (worktreePath) => {
+    const now = Number(process.hrtime.bigint() / 1_000_000n);
+    if (now - sessionNameCacheAt > 2000) {
+      sessionNameCache = claudeSessionNamesByCwd();
+      sessionNameCacheAt = now;
+    }
+    return sessionNameCache.get(worktreePath);
+  };
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
         sidecars: agentSidecars,

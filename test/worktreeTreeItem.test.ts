@@ -85,6 +85,22 @@ describe('describeWorktreeTreeItem', () => {
       .toBe('');
   });
 
+  it('prefers the Claude session name over the branch for the label', () => {
+    const worktree = {
+      path: '/work/alpha-feature',
+      head: 'b',
+      bare: false,
+      detached: false,
+      branch: 'feature',
+    };
+
+    expect(describeWorktreeTreeItem(worktree, false, '/work/alpha-main', 'Fix CI').label)
+      .toBe('Fix CI');
+    // Falls back to the branch when no session name is supplied.
+    expect(describeWorktreeTreeItem(worktree, false, '/work/alpha-main').label)
+      .toBe('feature');
+  });
+
   it('labels an active detached worktree by folder and shows the short commit in the tooltip', () => {
     const worktree = {
       path: '/work/alpha-origin-fix',

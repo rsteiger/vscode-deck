@@ -62,6 +62,7 @@ export function describeWorktreeTreeItem(
   worktree: Worktree,
   isActive: boolean,
   mainWorktreePath?: string,
+  sessionName?: string,
 ): WorktreeTreeItemDescription {
   const isMain = worktree.path === mainWorktreePath;
   let contextValue: WorktreeTreeItemDescription['contextValue'] = 'deck.worktree';
@@ -72,7 +73,9 @@ export function describeWorktreeTreeItem(
   }
 
   return {
-    label: worktree.branch ?? path.basename(worktree.path),
+    // One Claude session per worktree: prefer its name as the row label,
+    // falling back to the branch, then the directory basename.
+    label: sessionName ?? worktree.branch ?? path.basename(worktree.path),
     // Active text is the non-color channel for colorblind users; do not remove.
     description: isActive ? 'active' : '',
     tooltip: worktree.detached ? detachedWorktreeTooltip(worktree) : worktree.path,

@@ -59,6 +59,20 @@ export function readClaudeSessions(
   return [...byId.values()];
 }
 
+/** Map each session's cwd to its name (live sessions win) for tree labels. */
+export function claudeSessionNamesByCwd(
+  read: () => ClaudeSessionRecord[] = readClaudeSessions,
+): Map<string, string> {
+  const byCwd = new Map<string, { name: string; live: boolean }>();
+  for (const record of read()) {
+    const existing = byCwd.get(record.cwd);
+    if (!existing || (record.live && !existing.live)) {
+      byCwd.set(record.cwd, { name: record.name, live: record.live });
+    }
+  }
+  return new Map([...byCwd].map(([cwd, { name }]) => [cwd, name]));
+}
+
 type SessionQuickPickItem = vscode.QuickPickItem & { record: ClaudeSessionRecord };
 
 /**

@@ -88,8 +88,14 @@ class WorktreeNode extends vscode.TreeItem {
     public readonly worktree: Worktree,
     isActiveWorktree: boolean,
     public readonly mainWorktreePath: string | undefined,
+    sessionName?: string,
   ) {
-    const item = describeWorktreeTreeItem(worktree, isActiveWorktree, mainWorktreePath);
+    const item = describeWorktreeTreeItem(
+      worktree,
+      isActiveWorktree,
+      mainWorktreePath,
+      sessionName,
+    );
     super(item.label, vscode.TreeItemCollapsibleState.Expanded);
     this.id = `worktree::${worktree.path}`;
     this.contextValue = item.contextValue;
@@ -190,6 +196,9 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
   // are fed from the terminal poll via setLiveSessionNames.
   hideInactiveWorktrees = false;
   private liveSessionNames: ReadonlySet<string> = new Set();
+  // Resolves a worktree path to its Claude session name for the row label
+  // (one session per worktree). Unset → label falls back to branch/basename.
+  resolveWorktreeSessionName?: (worktreePath: string) => string | undefined;
 
   constructor(
     private readonly repositoryRegistry: Pick<RepositoryRegistryStore, 'list'>,
@@ -412,6 +421,7 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
       worktreeNode.worktree,
       this.isCurrentWorktree(worktreeNode.worktree.path),
       worktreeNode.mainWorktreePath,
+      this.resolveWorktreeSessionName?.(worktreeNode.worktree.path),
     );
   }
 
@@ -629,6 +639,7 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
         w,
         this.isCurrentWorktree(w.path),
         mainWorktreePath,
+        this.resolveWorktreeSessionName?.(w.path),
       );
     });
     this.syncAgentStatusDecorations();

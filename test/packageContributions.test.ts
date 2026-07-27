@@ -47,8 +47,14 @@ describe('package contributions', () => {
       icon: '$(folder)',
     }]);
     expect(pkg.contributes.views.deck).toContainEqual({
+      id: 'deck.board',
+      name: 'Sessions',
+      type: 'webview',
+    });
+    expect(pkg.contributes.views.deck).toContainEqual({
       id: 'deck.repositories',
       name: 'Repositories & Worktrees',
+      visibility: 'collapsed',
     });
     expect(pkg.contributes.keybindings).toContainEqual({
       command: 'workbench.view.extension.deck',

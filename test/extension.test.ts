@@ -192,6 +192,7 @@ vi.mock('vscode', () => ({
   window: {
     activeColorTheme: { kind: 2 },
     createTreeView: vscodeState.createTreeView,
+    registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
     registerFileDecorationProvider: vscodeState.registerFileDecorationProvider,
     registerCustomEditorProvider: vscodeState.registerCustomEditorProvider,
     showWarningMessage: vscodeState.showWarningMessage,

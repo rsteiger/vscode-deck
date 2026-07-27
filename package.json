@@ -172,8 +172,14 @@
     "views": {
       "deck": [
         {
+          "id": "deck.board",
+          "name": "Sessions",
+          "type": "webview"
+        },
+        {
           "id": "deck.repositories",
-          "name": "Repositories & Worktrees"
+          "name": "Repositories & Worktrees",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -334,17 +340,17 @@
       "view/title": [
         {
           "command": "deck.addWorktreeHere",
-          "when": "view == deck.repositories",
+          "when": "view == deck.repositories || view == deck.board",
           "group": "navigation@1"
         },
         {
           "command": "deck.addSection",
-          "when": "view == deck.repositories",
+          "when": "view == deck.repositories || view == deck.board",
           "group": "navigation@2"
         },
         {
           "command": "deck.refresh",
-          "when": "view == deck.repositories",
+          "when": "view == deck.repositories || view == deck.board",
           "group": "navigation@3"
         }
       ],

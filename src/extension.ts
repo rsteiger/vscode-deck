@@ -2,7 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import * as vscode from 'vscode';
 import { RepositoryTreeProvider, type RepositoryTreeNode, type WorktreePr } from './tree/repositoryTree';
 import { revealWithRetry } from './tree/revealWithRetry';
@@ -27,6 +27,13 @@ import { WorktreeRemovalCommand } from './worktree/worktreeRemovalCommand';
 import { WorktreeRootStore } from './worktree/worktreeRootStore';
 import { DeckTreeDragAndDropController } from './tree/deckTreeDragAndDropController';
 import { SectionStore } from './section/sectionStore';
+import { listWorktrees } from './git/worktrees';
+import { DeckBoardViewProvider, type DeckBoardHandlers } from './webview/deckBoardViewProvider';
+import {
+  groupIntoSections,
+  type BoardWorktree,
+  type DeckBoard,
+} from './webview/deckBoardModel';
 import { WorktreeOrderStore } from './worktree/worktreeOrderStore';
 import { AddTerminalCommand, createAndOpenTerminal } from './terminal/addTerminalCommand';
 import { RunLauncherCommand } from './terminal/runLauncherCommand';
@@ -246,7 +253,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // terminal poll's frequent tree refreshes do not re-hit gh.
   const prCache = new Map<string, { at: number; prs: WorktreePr[] }>();
   const execFileAsync = promisify(execFile);
-  tree.resolveWorktreePrs = async (worktree) => {
+  const resolveWorktreePrs = async (worktree: {
+    path: string;
+    branch?: string;
+  }): Promise<WorktreePr[]> => {
     if (!worktree.branch) return [];
     const cached = prCache.get(worktree.branch);
     const now = Number(process.hrtime.bigint() / 1_000_000n);
@@ -267,6 +277,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     prCache.set(worktree.branch, { at: now, prs });
     return prs;
   };
+  tree.resolveWorktreePrs = resolveWorktreePrs;
   // Single project: render worktrees at the tree root, no repository node.
   tree.flattenRepositories = true;
   // User-created sections: worktrees group under sections you create and drag
@@ -278,6 +289,104 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   tree.sections = sectionStore.list();
   tree.resolveWorktreeSectionId = (worktreePath) =>
     sectionStore.sectionOf(worktreePath);
+
+  // The board webview (SCM-style sections) shows worktrees with a live Deck
+  // session, grouped by section. It shares the tree's data sources; the live
+  // session set is tracked here (the tree only seeds it when its hide filter is
+  // on, so the board keeps its own always-updated copy).
+  let liveSessionNames: readonly string[] = [];
+  // The poll only emits session-set changes after its baseline, so the board
+  // seeds the live set itself the first time it builds (i.e. when the view is
+  // opened) rather than at activation, keeping the startup sequence unchanged.
+  let liveSessionsSeeded = false;
+  const seedLiveSessions = async (): Promise<void> => {
+    if (!tmuxAvailability.available) return;
+    try {
+      const sessions = await tmuxSessionsWithAgentNames.listSessions();
+      liveSessionNames = sessions.map((session) => session.sessionName);
+    } catch (error) {
+      console.warn('Deck: board session seed failed', error);
+    }
+  };
+  const worktreeHasLiveSession = (worktreePath: string): boolean => {
+    const prefix = terminalSessionPrefix(worktreePath);
+    return liveSessionNames.some((name) => name.startsWith(prefix));
+  };
+  const worktreeStatus = (worktreePath: string): string => {
+    const prefix = terminalSessionPrefix(worktreePath);
+    const sessionName = liveSessionNames.find((name) => name.startsWith(prefix));
+    if (!sessionName) return 'gone';
+    const status = agentStatuses.get(sessionName)?.status;
+    return status === 'inProgress' ? 'busy' : 'idle';
+  };
+  const buildBoardModel = async (): Promise<DeckBoard> => {
+    if (!liveSessionsSeeded) {
+      liveSessionsSeeded = true;
+      await seedLiveSessions();
+    }
+    const sessionNames = claudeSessionNamesByCwd();
+    const worktrees: BoardWorktree[] = [];
+    for (const repositoryPath of repositoryRegistry.list()) {
+      let gitWorktrees;
+      try {
+        gitWorktrees = await listWorktrees(repositoryPath);
+      } catch {
+        continue; // Repository unreadable this pass — skip it.
+      }
+      for (const worktree of gitWorktrees) {
+        if (worktree.bare) continue;
+        if (!worktreeHasLiveSession(worktree.path)) continue;
+        worktrees.push({
+          path: worktree.path,
+          label:
+            sessionNames.get(worktree.path) ??
+            worktree.branch ??
+            basename(worktree.path),
+          status: worktreeStatus(worktree.path),
+          prs: await resolveWorktreePrs(worktree),
+        });
+      }
+    }
+    return {
+      sections: groupIntoSections(
+        sectionStore.list(),
+        worktrees,
+        (worktreePath) => sectionStore.sectionOf(worktreePath),
+      ),
+    };
+  };
+  const boardHandlers: DeckBoardHandlers = {
+    openWorktree: (worktreePath) =>
+      void vscode.commands.executeCommand('deck.revealWorktreeTerminal', worktreePath),
+    openPr: (prNumber, url) =>
+      void vscode.commands.executeCommand('deck.openPr', prNumber, url),
+    assignSection: (worktreePath, sectionId) =>
+      sectionStore.assign(worktreePath, sectionId),
+    addSection: () => void vscode.commands.executeCommand('deck.addSection'),
+    renameSection: async (sectionId) => {
+      const current = sectionStore.list().find((section) => section.id === sectionId);
+      const name = await vscode.window.showInputBox({
+        prompt: 'Rename section',
+        value: current?.name ?? '',
+      });
+      if (name?.trim()) sectionStore.renameSection(sectionId, name.trim());
+    },
+    removeSection: async (sectionId) => {
+      const current = sectionStore.list().find((section) => section.id === sectionId);
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete section "${current?.name ?? ''}"? Its worktrees become ungrouped.`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirm === 'Delete') sectionStore.removeSection(sectionId);
+    },
+  };
+  const boardProvider = new DeckBoardViewProvider(buildBoardModel, boardHandlers);
+  const refreshBoard = () => void boardProvider.refresh();
+  // Repaint the board when an agent's status changes (worktree status dots).
+  // Registered here (before AgentStatusNotifier) so it does not disturb code
+  // that relies on the notifier being the last onDidChange listener.
+  const boardStatusWatch = agentStatuses.onDidChange(refreshBoard);
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
         sidecars: agentSidecars,
@@ -294,6 +403,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   function refreshTree(): void {
     tree.refresh();
+    refreshBoard();
     terminalPoll?.start();
     wakeAgentExitSweep();
     syncExternalGitWatches();
@@ -366,6 +476,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   const terminalPollSessionSetWatch = terminalPoll?.onDidChangeSessionSet(
     (sessionNames) => {
+      liveSessionNames = sessionNames;
+      liveSessionsSeeded = true;
       tree.setLiveSessionNames(sessionNames);
       refreshTree();
     },
@@ -567,6 +679,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     treeView,
+    vscode.window.registerWebviewViewProvider(
+      DeckBoardViewProvider.viewType,
+      boardProvider,
+      { webviewOptions: { retainContextWhenHidden: true } },
+    ),
+    boardStatusWatch,
     hideInactiveConfigWatch,
     agentStatusWatch,
     activeTerminalReadWatch,

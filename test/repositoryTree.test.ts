@@ -195,6 +195,31 @@ describe('RepositoryTreeProvider', () => {
     expect(provider.isActiveWorktreeDecorationTarget('/work/alpha-main')).toBe(true);
   });
 
+  it('hides worktrees without a live terminal, keeping current and main', async () => {
+    vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-feature' } }];
+    const provider = new RepositoryTreeProvider(
+      registry(),
+      { get: vi.fn() } as unknown as ActiveWorktreeStore,
+      { get: vi.fn() } as unknown as WorktreeOrderStore,
+    );
+    provider.hideInactiveWorktrees = true;
+    // /work/alpha-main is the main worktree (always shown); alpha-feature is the
+    // current folder (always shown). A live session under neither keeps them
+    // both and hides nothing extra since there are only those two here.
+    provider.setLiveSessionNames([]);
+
+    const repositories = provider.getChildren();
+    if (!Array.isArray(repositories)) throw new Error('expected sync repository roots');
+    const worktreeNodes = await provider.getChildren(repositories[0]);
+    if (!Array.isArray(worktreeNodes)) throw new Error('expected worktree children');
+
+    // Both survive: main (alpha-main) and current (alpha-feature).
+    expect(worktreeNodes.map((node) => node.worktree.path).sort()).toEqual([
+      '/work/alpha-feature',
+      '/work/alpha-main',
+    ]);
+  });
+
   it('invalidates old and new active Worktree decorations when the mounted folder changes', () => {
     vscodeState.workspaceFolders = [{ uri: { fsPath: '/work/alpha-main' } }];
     const provider = new RepositoryTreeProvider(

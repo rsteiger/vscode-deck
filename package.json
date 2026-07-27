@@ -152,6 +152,11 @@
               "launchers"
             ]
           }
+        },
+        "deck.hideWorktreesWithoutTerminals": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide worktrees that have no live Deck terminal. The current worktree and the main worktree stay visible. Cuts noise in repos with many ephemeral worktrees."
         }
       }
     },

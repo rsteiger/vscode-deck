@@ -185,6 +185,11 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
   private readonly renderedTerminals = new Map<string, TerminalNode>();
   private readonly tmux: TerminalSessionLister;
   private readonly tmuxAvailable: boolean;
+  // When true, worktrees with no live Deck terminal are hidden (the current
+  // worktree and the main worktree always stay visible). Live session names
+  // are fed from the terminal poll via setLiveSessionNames.
+  hideInactiveWorktrees = false;
+  private liveSessionNames: ReadonlySet<string> = new Set();
 
   constructor(
     private readonly repositoryRegistry: Pick<RepositoryRegistryStore, 'list'>,
@@ -647,8 +652,47 @@ export class RepositoryTreeProvider implements vscode.TreeDataProvider<Repositor
     pendingAtListStart?: ReadonlySet<string>,
   ): Worktree[] {
     const currentlyVisible = excludePending(excludeBare(worktrees), this.pendingWorktreeRemovals);
-    if (pendingAtListStart === undefined) return currentlyVisible;
-    return excludePending(currentlyVisible, pendingAtListStart);
+    const notPending =
+      pendingAtListStart === undefined
+        ? currentlyVisible
+        : excludePending(currentlyVisible, pendingAtListStart);
+    return this.excludeInactive(notPending, worktrees);
+  }
+
+  private excludeInactive(
+    worktrees: readonly Worktree[],
+    allWorktrees: readonly Worktree[],
+  ): Worktree[] {
+    if (!this.hideInactiveWorktrees) return [...worktrees];
+    const mainPath = allWorktrees.find((worktree) => !worktree.bare)?.path;
+    return worktrees.filter(
+      (worktree) =>
+        this.isCurrentWorktree(worktree.path) ||
+        (mainPath !== undefined &&
+          path.resolve(worktree.path) === path.resolve(mainPath)) ||
+        this.hasLiveSession(worktree.path),
+    );
+  }
+
+  private hasLiveSession(worktreePath: string): boolean {
+    const prefix = terminalSessionPrefix(worktreePath);
+    for (const sessionName of this.liveSessionNames) {
+      if (sessionName.startsWith(prefix)) return true;
+    }
+    return false;
+  }
+
+  /** Feed the current live Deck session names (from the terminal poll). */
+  setLiveSessionNames(names: readonly string[]): void {
+    const next = new Set(names);
+    if (
+      next.size === this.liveSessionNames.size &&
+      [...next].every((name) => this.liveSessionNames.has(name))
+    ) {
+      return;
+    }
+    this.liveSessionNames = next;
+    if (this.hideInactiveWorktrees) this._onDidChangeTreeData.fire(undefined);
   }
 
   private syncCachedDecorationWorktrees(repositoryPath: string): void {

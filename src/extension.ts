@@ -308,7 +308,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tree.refreshTerminalDisplays(changedSessions);
     terminalEditorProvider.refreshTitles(changedSessions.map((session) => session.sessionName));
   });
-  const terminalPollSessionSetWatch = terminalPoll?.onDidChangeSessionSet(refreshTree);
+  const terminalPollSessionSetWatch = terminalPoll?.onDidChangeSessionSet(
+    (sessionNames) => {
+      tree.setLiveSessionNames(sessionNames);
+      refreshTree();
+    },
+  );
+  const applyHideInactiveSetting = (refresh: boolean) => {
+    const next = vscode.workspace
+      .getConfiguration('deck')
+      .get<boolean>('hideWorktreesWithoutTerminals', false);
+    if (next === tree.hideInactiveWorktrees) return;
+    tree.hideInactiveWorktrees = next;
+    // Only seed the live-session set when the filter is on — the poll otherwise
+    // only emits on *changes* after its baseline, so the hide filter would have
+    // an empty set until a session appears or disappears.
+    if (next && tmuxAvailability.available) {
+      void tmuxSessionsWithAgentNames
+        .listSessions()
+        .then((sessions) => tree.setLiveSessionNames(sessions.map((s) => s.sessionName)))
+        .catch((error) => console.warn('Deck: initial session seed failed', error));
+    }
+    if (refresh) refreshTree();
+  };
+  applyHideInactiveSetting(false);
+  const hideInactiveConfigWatch = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration('deck.hideWorktreesWithoutTerminals')) {
+      applyHideInactiveSetting(true);
+    }
+  });
   terminalPoll?.start();
   const openTerminal = new OpenTerminalCommand({
     terminalPanels: terminalEditorProvider,
@@ -482,6 +510,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     treeView,
+    hideInactiveConfigWatch,
     agentStatusWatch,
     activeTerminalReadWatch,
     agentExitSweepWakeWatch,

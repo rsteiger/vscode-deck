@@ -19,7 +19,7 @@ interface TerminalPollOptions {
 }
 
 type LabelChangeListener = (changedSessions: readonly TmuxSession[]) => void;
-type SessionSetChangeListener = () => void;
+type SessionSetChangeListener = (sessionNames: readonly string[]) => void;
 
 export class TerminalPoll implements Disposable {
   private readonly scheduler: TerminalPollScheduler;
@@ -138,7 +138,8 @@ export class TerminalPoll implements Disposable {
       for (const listener of this.labelListeners) listener(changedSessions);
     }
     if (sessionSetChanged) {
-      for (const listener of this.sessionSetListeners) listener();
+      const sessionNames = [...nextLabels.keys()];
+      for (const listener of this.sessionSetListeners) listener(sessionNames);
     }
   }
 

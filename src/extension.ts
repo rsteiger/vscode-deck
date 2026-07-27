@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { watch, type FSWatcher } from 'node:fs';
 import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -456,6 +457,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Registered here (before AgentStatusNotifier) so it does not disturb code
   // that relies on the notifier being the last onDidChange listener.
   const boardStatusWatch = agentStatuses.onDidChange(refreshBoard);
+  // Push board updates immediately when session records change — renames, new
+  // sessions, cwd/status edits all rewrite ~/.claude/sessions/*.json, which the
+  // board reads for labels. Debounced so a burst of writes coalesces.
+  const sessionsDir = join(
+    process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'),
+    'sessions',
+  );
+  let sessionWatchDebounce: ReturnType<typeof setTimeout> | undefined;
+  let sessionsWatcher: FSWatcher | undefined;
+  try {
+    sessionsWatcher = watch(sessionsDir, () => {
+      if (sessionWatchDebounce) clearTimeout(sessionWatchDebounce);
+      sessionWatchDebounce = setTimeout(refreshBoard, 400);
+    });
+  } catch (error) {
+    console.warn('Deck: session-dir watch failed', error);
+  }
   agentExitSweep = tmuxAvailability.available
     ? new AgentExitSweep({
         sidecars: agentSidecars,
@@ -754,6 +772,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
     boardStatusWatch,
+    ...(sessionsWatcher ? [{ dispose: () => sessionsWatcher.close() }] : []),
     hideInactiveConfigWatch,
     agentStatusWatch,
     activeTerminalReadWatch,

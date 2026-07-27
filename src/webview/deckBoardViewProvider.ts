@@ -25,9 +25,15 @@ interface BoardMessage {
 // badges, worktree rows, and PRs, with drag-and-drop between sections. Data is
 // pushed from the extension via buildModel(); user actions come back through the
 // injected handlers.
+// How often the board re-polls its data while the view is visible. Event-driven
+// refreshes (terminal poll, agent status, section edits) still fire immediately;
+// this timer catches everything else (PR/status changes with no local event).
+const AUTO_REFRESH_MS = 10_000;
+
 export class DeckBoardViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'deck.board';
   private view: vscode.WebviewView | undefined;
+  private refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly buildModel: () => Promise<DeckBoard>,
@@ -41,9 +47,33 @@ export class DeckBoardViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage((message: BoardMessage) => {
       void this.onMessage(message);
     });
+    // Poll only while the view is visible; refresh immediately when it (re)shows.
+    view.onDidChangeVisibility?.(() => this.syncAutoRefresh());
     view.onDidDispose(() => {
+      this.stopAutoRefresh();
       if (this.view === view) this.view = undefined;
     });
+    this.syncAutoRefresh();
+  }
+
+  private syncAutoRefresh(): void {
+    if (this.view?.visible) {
+      void this.refresh();
+      if (!this.refreshTimer) {
+        this.refreshTimer = setInterval(() => {
+          if (this.view?.visible) void this.refresh();
+        }, AUTO_REFRESH_MS);
+      }
+    } else {
+      this.stopAutoRefresh();
+    }
+  }
+
+  private stopAutoRefresh(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
   }
 
   async refresh(): Promise<void> {

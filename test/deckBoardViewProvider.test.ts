@@ -69,4 +69,43 @@ describe('DeckBoardViewProvider', () => {
     expect(handlers.renameSection).toHaveBeenCalledWith('a');
     expect(handlers.removeSection).toHaveBeenCalledWith('a');
   });
+
+  it('auto-refreshes on an interval while visible and stops when hidden', async () => {
+    vi.useFakeTimers();
+    try {
+      const build = vi.fn(async () => EMPTY_BOARD);
+      const provider = new DeckBoardViewProvider(build, noopHandlers());
+      let onVisibility = () => {};
+      const view = {
+        visible: true,
+        webview: {
+          options: {},
+          html: '',
+          postMessage: vi.fn(),
+          onDidReceiveMessage: () => ({ dispose: vi.fn() }),
+        },
+        onDidChangeVisibility: (listener: () => void) => {
+          onVisibility = listener;
+          return { dispose: vi.fn() };
+        },
+        onDidDispose: () => ({ dispose: vi.fn() }),
+      };
+
+      provider.resolveWebviewView(view as never);
+      await vi.advanceTimersByTimeAsync(0); // immediate refresh on show
+      const afterShow = build.mock.calls.length;
+      expect(afterShow).toBeGreaterThanOrEqual(1);
+
+      await vi.advanceTimersByTimeAsync(10_000); // one tick
+      expect(build.mock.calls.length).toBeGreaterThan(afterShow);
+
+      view.visible = false;
+      onVisibility();
+      const afterHide = build.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(build.mock.calls.length).toBe(afterHide); // no ticks while hidden
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

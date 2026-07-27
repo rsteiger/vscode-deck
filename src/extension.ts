@@ -2,6 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import * as http from 'node:http';
 import { basename, join } from 'node:path';
 import * as vscode from 'vscode';
 import { RepositoryTreeProvider, type RepositoryTreeNode, type WorktreePr } from './tree/repositoryTree';
@@ -88,6 +89,34 @@ import { ResumeTemplate } from './agent/resumeTemplate';
 import { SnapshotRewriter } from './agent/snapshotRewriter';
 
 let terminalSnapshotRuntime: TerminalSnapshotRuntime | undefined;
+
+// GET a small JSON document over http (localhost dashboard endpoint). Rejects
+// on non-200, timeout, transport error, or unparseable body.
+function httpGetJson(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, { timeout: 5000 }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.on('end', () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    });
+    request.on('timeout', () => request.destroy(new Error('timeout')));
+    request.on('error', reject);
+  });
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const tmuxAvailability = await tmuxPreflight();
@@ -253,7 +282,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // terminal poll's frequent tree refreshes do not re-hit gh.
   const prCache = new Map<string, { at: number; prs: WorktreePr[] }>();
   const execFileAsync = promisify(execFile);
-  const resolveWorktreePrs = async (worktree: {
+  // Fallback attribution: PRs whose head branch matches the worktree's branch.
+  // Used only when the dashboard endpoint (the source of truth) is unreachable.
+  const resolveWorktreePrsViaGh = async (worktree: {
     path: string;
     branch?: string;
   }): Promise<WorktreePr[]> => {
@@ -276,6 +307,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     prCache.set(worktree.branch, { at: now, prs });
     return prs;
+  };
+  // Primary attribution: the PR Dash server owns the full session→PR model
+  // (Claude-Session trailers, transcript grep, etc.), keyed by owning-session
+  // cwd. Deck reuses it so a session's PRs on any branch show under its
+  // worktree — a naive per-branch head match misses stacked/other-branch PRs.
+  const DASHBOARD_WORKTREE_PRS_URL = 'http://localhost:8877/api/worktree-prs';
+  let worktreePrMap: Record<string, WorktreePr[]> = {};
+  let worktreePrMapAt = 0;
+  const fetchWorktreePrMap = async (): Promise<Record<string, WorktreePr[]>> => {
+    const now = Number(process.hrtime.bigint() / 1_000_000n);
+    if (now - worktreePrMapAt < 30_000) return worktreePrMap;
+    const map = (await httpGetJson(DASHBOARD_WORKTREE_PRS_URL)) as Record<
+      string,
+      WorktreePr[]
+    >;
+    worktreePrMap = map;
+    worktreePrMapAt = now;
+    return worktreePrMap;
+  };
+  const resolveWorktreePrs = async (worktree: {
+    path: string;
+    branch?: string;
+  }): Promise<WorktreePr[]> => {
+    try {
+      const map = await fetchWorktreePrMap();
+      return map[worktree.path] ?? [];
+    } catch {
+      // Dashboard down — fall back to the per-branch head match.
+      return resolveWorktreePrsViaGh(worktree);
+    }
   };
   tree.resolveWorktreePrs = resolveWorktreePrs;
   // Single project: render worktrees at the tree root, no repository node.

@@ -169,6 +169,28 @@ function renderSection(section) {
 
 let dragPath = null;
 
+// Auto-scroll the view when a drag hovers near its top/bottom edge, so you can
+// drag a session into a section that is currently off-screen.
+let dragY = null;
+let scrollRAF = null;
+const EDGE = 56;        // px from an edge where auto-scroll kicks in
+const MAX_SPEED = 16;   // px per frame at the very edge
+document.addEventListener('dragover', (e) => {
+  if (dragPath === null) return;
+  dragY = e.clientY;
+  if (scrollRAF !== null) return;
+  const step = () => {
+    if (dragPath === null || dragY === null) { scrollRAF = null; return; }
+    const h = window.innerHeight;
+    let d = 0;
+    if (dragY < EDGE) d = -MAX_SPEED * (1 - dragY / EDGE);
+    else if (dragY > h - EDGE) d = MAX_SPEED * (1 - (h - dragY) / EDGE);
+    if (d !== 0) window.scrollBy(0, d);
+    scrollRAF = requestAnimationFrame(step);
+  };
+  scrollRAF = requestAnimationFrame(step);
+});
+
 function renderWorktree(wt) {
   const frag = document.createDocumentFragment();
   const row = document.createElement('div');
@@ -183,7 +205,9 @@ function renderWorktree(wt) {
     dragPath = wt.path; row.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
   });
-  row.addEventListener('dragend', () => { dragPath = null; row.classList.remove('dragging'); });
+  row.addEventListener('dragend', () => {
+    dragPath = null; dragY = null; row.classList.remove('dragging');
+  });
   frag.appendChild(row);
   for (const pr of wt.prs) {
     const p = document.createElement('div');
